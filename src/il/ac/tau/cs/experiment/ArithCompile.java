@@ -32,7 +32,7 @@ public class ArithCompile {
      * DIV= 5.0  # take the top and the next and push(next/top)
      * SWAP= 6.0  # swap the top and next on the stack
      * DUP= 7.0  # Duplicates the top of stack
-     * REF(i) = 8.0,i  # push the value of param whose name is the i-th in the list paramIndex
+     * PARAM(i) = 8.0,i  # push the value of param whose name is the i-th in the list paramIndex
      * ZERO=9.0  # push 0.0
      * ONE=10.0  # push 1.0
      *
@@ -41,65 +41,77 @@ public class ArithCompile {
      */
     public record ExecutableCode(float[] opCodes, String[] paramIndex) {}
 
+    static final int NOOP = 0;
+    static final int PUSH = 1;
+    static final int PLUS = 2;
+    static final int MINUS = 3;
+    static final int MUL = 4;
+    static final int DIV = 5;
+    static final int SWAP = 6;
+    static final int DUP = 7;
+    static final int PARAM = 8;
+    static final int ZERO = 9;
+    static final int ONE = 10;
+
     static public float run(ExecutableCode exec, Map<String, Float> params) {
       var stack = new Stack<Float>();
       var prevOp = 0.0F;
       for (var op: exec.opCodes) {
           float a, b;
           switch((int)prevOp) {
-              case 1:  // PUSH(const_num)
+              case PUSH:  // PUSH(const_num)
                   stack.push(op /* the number */);
                   // op is the number to push
                   prevOp = 0.0F;
                   continue;
-              case 8:  // push param value
+              case PARAM:  // push param value
                   var paramVal = params.get(exec.paramIndex[(int)op]);
                   stack.push(paramVal);
                   prevOp = 0.0F;
                   continue;
           }
           switch ((int) op) {
-              case 0:
+              case NOOP:
                   break;
-              case 2:
+              case PLUS:
                   a = stack.pop();
                   b = stack.pop();
                   stack.push(b + a);
                   break;
-              case 3:
+              case MINUS:
                   a = stack.pop();
                   b = stack.pop();
                   stack.push(b - a);
                   break;
-              case 4:
+              case MUL:
                   a = stack.pop();
                   b = stack.pop();
                   stack.push(b * a);
                   break;
-              case 5:
+              case DIV:
                   a = stack.pop();
                   b = stack.pop();
                   stack.push(b / a);
                   break;
-              case 6:
+              case SWAP:
                   a = stack.pop();
                   b = stack.pop();
                   stack.push(a);
                   stack.push(b);
                   break;
-              case 7:
+              case DUP:
                   a = stack.pop();
                   stack.push(a);
                   stack.push(a);
                   break;
-              case 9:
+              case ZERO:
                   stack.push(0.0F);
                   break;
-              case 10:
+              case ONE:
                   stack.push(1.0F);
                   break;
-              case 1:
-              case 8:
+              case PUSH:
+              case PARAM:
                   prevOp = op;
                   break;
               default:
@@ -201,7 +213,7 @@ public class ArithCompile {
             }
             if (!hasValue && advanceIfMatch("^[a-zA-Z_]\\w*")) {
                 int index = getOrAppendParamIndex(lastMatch);
-                opCodes.add(8.0F);  // 8.0=REF(i)
+                opCodes.add((float)PARAM);
                 opCodes.add((float)index);
                 hasValue = true;
                 next();
@@ -278,7 +290,7 @@ public class ArithCompile {
     }
 
     public static void profileInterpreter() {
-        timeIt(() ->interpret("1 + x + (x*x/2) + (x*x*x/6) + (x*x*x*x/24) + (x*x*x*x*x/120)",
+        ArithInterpreter.timeIt(() ->interpret("1 + x + (x*x/2) + (x*x*x/6) + (x*x*x*x/24) + (x*x*x*x*x/120)",
                 Map.of("x", 1.0F)));
     }
 
@@ -295,7 +307,7 @@ public class ArithCompile {
                 return false;
             }
             if (!Float.isNaN(patternVal) && patternVal != opCodeVal1) {
-                // Check that the code matches the patter. NaN is used as a wildcard
+                // Check that the code matches the patten. NaN is used as a wildcard
                 return false;
             }
         }
@@ -310,18 +322,18 @@ public class ArithCompile {
         int prevLen = opCodes.size();
         for(;;) {
             for (int i = 0; i < opCodes.size(); i++) {
-                if (repeatsPattern(List.of(8.0F, NaN), opCodes, i)) {
-                    // covert REF(X),REF(X) -> REF(X),DUP
+                if (repeatsPattern(List.of((float)PARAM, NaN), opCodes, i)) {
+                    // covert PARAM(X),PARAM(X) -> PARAM(X),DUP
                     opCodes.remove(i + 2);
-                    opCodes.set(i + 2, 7.0F);  // replace the next identical REF(i) with DUP
+                    opCodes.set(i + 2, (float)DUP);  // replace the next identical PARAM(i) with DUP
                     break;
                 }
-                if (repeatsPattern(List.of(8.0F, NaN, 7.0F, 4.0F), opCodes, i)) {
-                    // convert REF(X),DUP.MUL,REF(X),DUP,MUL -> REF(X),DUP,MUL,DUP
+                if (repeatsPattern(List.of((float)PARAM, NaN, (float)DUP, (float)MUL), opCodes, i)) {
+                    // convert PARAM(X),DUP.MUL,PARAM(X),DUP,MUL -> PARAM(X),DUP,MUL,DUP
                     opCodes.remove(i + 4);
                     opCodes.remove(i + 4);
                     opCodes.remove(i + 4);
-                    opCodes.set(i + 4, 7.0F);  // replace the next identical REF(i) with DUP
+                    opCodes.set(i + 4, (float)DUP);  // replace the next identical PARAM(i) with DUP
                     break;
                 }
             }
