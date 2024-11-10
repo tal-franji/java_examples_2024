@@ -275,6 +275,19 @@ public class ArithCompile {
         }
     }
 
+    public static void checkExcept(String source_code, Map<String, Float> params) {
+        boolean finished = false;
+        try {
+            interpret(source_code, params);
+            finished = true;
+        } catch (RuntimeException e) {
+            return;   // OK - we wanted this exception
+        }
+        if (finished) {
+            throw new RuntimeException("ERROR - this should have failed: " + source_code);
+        }
+    }
+
     public static void testInterpreter() {
         check(interpret("123", Map.of()), 123.0F);
         check(interpret("X", Map.of("X", 17.0F)), 17.0F);
@@ -285,28 +298,27 @@ public class ArithCompile {
         check(interpret("3*4+5", Map.of()), 27.0F);
         check(interpret("2*3+4+5", Map.of()), 24.0F);
         check(interpret("(2*3+4)+5", Map.of()), 19.0F);
-        check(interpret("1 + x + (x*x/2) + (x*x*x/6) + (x*x*x*x/24) + (x*x*x*x*x/120)",
+        check(interpret("1 + x + (x*x/2) + (x*x*x/(2*3)) + (x*x*x*x/(2*3*4)) + (x*x*x*x*x/(2*3*4*5))",
                 Map.of("x", 1.0F)), 2.716667F);
+
+        // Some error cases
+        checkExcept("123X", Map.of("X", 17.0F));
+
     }
 
     public static void profileInterpreter() {
-        ArithInterpreter.timeIt(() ->interpret("1 + x + (x*x/2) + (x*x*x/6) + (x*x*x*x/24) + (x*x*x*x*x/120)",
+        ArithInterpreter.timeIt(() ->interpret(
+                "1 + x + (x*x/2) + (x*x*x/(2*3)) + (x*x*x*x/(2*3*4)) + (x*x*x*x*x/(2*3*4*5))",
                 Map.of("x", 1.0F)));
     }
-
-    protected static boolean repeatsPattern(List<Float> pattern, ArrayList<Float> opCodes, int offset) {
-        int patternSize = pattern.size();
-        if (offset + 2 * patternSize > opCodes.size()) {
-            return false;  // cannot fit a repeat of the pattern
-        }
-        for (int i = 0; i < patternSize; i++) {
-            float patternVal = pattern.get(i);
-            float opCodeVal1 = opCodes.get(offset + i);
-            float opCodeVal2 = opCodes.get(offset + patternSize + i);
-            if (opCodeVal1 != opCodeVal2) {  // check that the code repeats twice
+    protected static boolean matchPattern(int[] pattern, ArrayList<Float> opCodes, int offset) {
+        for (int i = 0; i < pattern.length; i++) {
+            var patternVal = pattern[i];
+            if (offset + i >= opCodes.size()) {
                 return false;
             }
-            if (!Float.isNaN(patternVal) && patternVal != opCodeVal1) {
+            float opCodeVal = opCodes.get(offset + i);
+            if (patternVal >= 0 && (float)patternVal != opCodeVal) {
                 // Check that the code matches the patten. NaN is used as a wildcard
                 return false;
             }
@@ -322,18 +334,33 @@ public class ArithCompile {
         int prevLen = opCodes.size();
         for(;;) {
             for (int i = 0; i < opCodes.size(); i++) {
-                if (repeatsPattern(List.of((float)PARAM, NaN), opCodes, i)) {
+                if (matchPattern(new int[]{PARAM, -1, PARAM, -1}, opCodes, i)) {
                     // covert PARAM(X),PARAM(X) -> PARAM(X),DUP
-                    opCodes.remove(i + 2);
-                    opCodes.set(i + 2, (float)DUP);  // replace the next identical PARAM(i) with DUP
-                    break;
+                    if (opCodes.get(i + 1).equals(opCodes.get(i + 3))) {
+                        opCodes.remove(i + 2);
+                        opCodes.set(i + 2, (float)DUP);  // replace the next identical PARAM(i) with DUP
+                        break;
+
+                    }
                 }
-                if (repeatsPattern(List.of((float)PARAM, NaN, (float)DUP, (float)MUL), opCodes, i)) {
+                if (matchPattern(new int[]{PARAM, -1, DUP, MUL, PARAM, -1, DUP, MUL}, opCodes, i)) {
                     // convert PARAM(X),DUP.MUL,PARAM(X),DUP,MUL -> PARAM(X),DUP,MUL,DUP
-                    opCodes.remove(i + 4);
-                    opCodes.remove(i + 4);
-                    opCodes.remove(i + 4);
-                    opCodes.set(i + 4, (float)DUP);  // replace the next identical PARAM(i) with DUP
+                    if (opCodes.get(i + 1).equals(opCodes.get(i + 5))) {
+                        opCodes.remove(i + 4);
+                        opCodes.remove(i + 4);
+                        opCodes.remove(i + 4);
+                        opCodes.set(i + 4, (float)DUP);  // replace the next identical PARAM(i) with DUP
+                        break;
+                    }
+                }
+                if (matchPattern(new int[]{PUSH, -1, PUSH, -1, MUL}, opCodes, i)) {
+                    // convert PUSH, a, PUSH, b, MUL -> PUSH <a*b>
+                    var a = opCodes.get(i + 1);
+                    var b = opCodes.get(i + 3);
+                    opCodes.set(i + 1, a * b);
+                    opCodes.remove(i + 2);
+                    opCodes.remove(i + 2);
+                    opCodes.remove(i + 2);
                     break;
                 }
             }
@@ -350,20 +377,21 @@ public class ArithCompile {
     }
 
     public static void profileCompiler() {
-        var exec = compile("1 + x + (x*x/2) + (x*x*x/6) + (x*x*x*x/24) + (x*x*x*x*x/120)");
+        var exec = compile("1 + x + (x*x/2) + (x*x*x/(2*3)) + (x*x*x*x/(2*3*4)) + (x*x*x*x*x/(2*3*4*5))");
         ArithInterpreter.timeIt(() -> run(exec, Map.of("x", 1.0F)));
     }
 
     public static void profileCompilerOptimizer() {
-        var originalExec = compile("1 + x + (x*x/2) + (x*x*x/6) + (x*x*x*x/24) + (x*x*x*x*x/120)");
+        var originalExec = compile(
+                "1 + x + (x*x/2) + (x*x*x/(2*3)) + (x*x*x*x/(2*3*4)) + (x*x*x*x*x/(2*3*4*5))");
         var exec = optimize(originalExec);
         ArithInterpreter.timeIt(() -> run(exec, Map.of("x", 1.0F)));
     }
 
     public static void main(String[] args) {
         testInterpreter();
-        profileInterpreter();  // on my laptop 20198
-        profileCompiler();  // on my laptop 511
-        profileCompilerOptimizer(); // on my laptop 487 (5% ? that's it?)
+        profileInterpreter();  // on my laptop 32433
+        profileCompiler();  // on my laptop 766
+        profileCompilerOptimizer(); // on my laptop 484
     }
 }

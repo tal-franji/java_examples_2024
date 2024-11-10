@@ -119,13 +119,12 @@ public class ArithInterpreter {
                 var rightVal = inner.interpretedValue;
                 parseEnd = inner.parseEnd;
                 next();
-                var calcValue = calcOperator(leftVal, operator, rightVal);
-                interpretedValue = calcValue;
-                return calcValue;
+                interpretedValue = calcOperator(leftVal, operator, rightVal);
+                return interpretedValue;
             }
 
             throw new RuntimeException(String.format(
-                    "Missing ')' of EOF in location %d in code %s", parseStart, sourceCode));
+                    "Missing ')' or EOF in location %d in code %s", parseStart, sourceCode));
         }
     }
 
@@ -142,6 +141,20 @@ public class ArithInterpreter {
         }
     }
 
+    public static void checkExcept(String source_code, Map<String, Float> params) {
+        boolean finished = false;
+        try {
+            interpret(source_code, params);
+            finished = true;
+        } catch (RuntimeException e) {
+            return;   // OK - we wanted this exception
+        }
+        if (finished) {
+            throw new RuntimeException("ERROR - this should have failed: " + source_code);
+        }
+    }
+
+
     public static void testInterpreter() {
         check(interpret("123", Map.of()), 123.0F);
         check(interpret("X", Map.of("X", 17.0F)), 17.0F);
@@ -152,15 +165,18 @@ public class ArithInterpreter {
         check(interpret("3*4+5", Map.of()), 27.0F);
         check(interpret("2*3+4+5", Map.of()), 24.0F);
         check(interpret("(2*3+4)+5", Map.of()), 19.0F);
-        check(interpret("1 + x + (x*x/2) + (x*x*x/6) + (x*x*x*x/24) + (x*x*x*x*x/120)",
+        check(interpret("1 + x + (x*x/2) + (x*x*x/(2*3)) + (x*x*x*x/(2*3*4)) + (x*x*x*x*x/(2*3*4*5))",
                 Map.of("x", 1.0F)), 2.716667F);
         check(interpret("(x*x) + (2*x*y) + (y*y)",
                 Map.of("x", 3.0F, "y", 4.0F)), 49.0F);
+
+        // Some error cases
+        checkExcept("123X", Map.of("X", 17.0F));
     }
 
     public static void profileInterpreter() {
-        timeIt(() ->interpret("1 + x + (x*x/2) + (x*x*x/6) + (x*x*x*x/24) + (x*x*x*x*x/120)",
-                Map.of("x", 1.0F)));
+        timeIt(() ->interpret("1 + x + (x*x/2) + (x*x*x/(2*3)) + (x*x*x*x/(2*3*4)) + (x*x*x*x*x/(2*3*4*5))",
+                Map.of("x", 1.0F)));  // 29736 on my laptop
     }
 
     public static void timeIt(Runnable r) {
