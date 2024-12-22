@@ -1,6 +1,8 @@
 package il.ac.tau.cs.experiment;
 
+import java.lang.reflect.Array;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class MultiMerge {
     // Franji's version  (63 lines)
@@ -189,15 +191,74 @@ public class MultiMerge {
         }
     }
 
+    public static long timeItNano(Runnable r) {
+        // Function to measure execution time of the above solutions
+        // to use in the above main call like this (for example)
+        //    String output = Main.timeIt(Main::capitalize_by_word, input);
+        long startTime = System.nanoTime();
+        r.run();
+        long nano_secs = (System.nanoTime() - startTime);
+        return nano_secs;
+    }
+
+    public static Iterable<Integer> testIterable(int minSize, int maxSize) {
+        var rand = new Random();
+        int len = rand.nextInt(maxSize-minSize) + maxSize;
+        var list = rand.ints(len).boxed().collect(Collectors.toList());
+        Collections.sort(list);
+        return list;
+    }
+
+    public static List<Iterator<Integer>> iteratorList(int minSize, int maxSize, int n) {
+        ArrayList<Iterator<Integer>> iterators = new ArrayList<>();
+        for(int i = 0; i < n; i++) {
+            iterators.add(testIterable(minSize, maxSize).iterator());
+        }
+        return iterators;
+    }
+
+    interface IteratorFactory {
+        Iterator<Integer> create();
+    }
+
+    public static void timeMerger(IteratorFactory factory) {
+        int repeats = 50;
+        long nano_secs_sum = 0;
+        for (int i = 0; i < repeats; i++) {
+            Iterator<Integer> merger = factory.create();
+            long nano_secs = timeItNano(() -> {
+                var prev = OptionalInt.empty();
+                while (merger.hasNext()) {
+                    int item = merger.next();
+                    if (prev.isPresent() && prev.getAsInt() > item) {
+                        throw new RuntimeException(String.format("ERROR we should have %d <= %d", prev.getAsInt(), item));
+                    }
+                    prev = OptionalInt.of(item);
+                }
+            });
+            nano_secs_sum += nano_secs;
+        }
+        System.out.println("time msec average= " + Double.toString(nano_secs_sum / repeats / 1000000.0));
+    }
+
+    public static void timing() {
+        System.out.println("Timing Merger...");
+        timeMerger(() -> new Merger<>(iteratorList(10000, 15000, 10)));
+        System.out.println("Timing MergerChatGPT1...");
+        timeMerger(() -> new MergerChatGPT1<>(iteratorList(10000, 15000, 10)));
+        System.out.println("Timing MergerByChatGPT2...");
+        timeMerger(() -> new MergerByChatGPT2<>(iteratorList(10000, 15000, 10)));
+    }
 
     public static void main(String[] args) {
         Iterator<String> i1 = Arrays.asList(new String[]{"abcd", "efg", "hijk", "lmnop"}).iterator();
         Iterator<String> i2 = Arrays.asList(new String[]{"abra", "kadabra"}).iterator();
-        Iterator<String> i3 = Arrays.asList(new String[]{"foo", "bar", "qrst", "uvw", "xyz"}).iterator();
-        var merged = new Merger<>(Arrays.asList(i1, i2, i3));
+        Iterator<String> i3 = Arrays.asList(new String[]{"qrst", "bar", "foo", "uvw", "xyz"}).iterator();
+        var merged = new MergerChatGPT1<>(Arrays.asList(i1, i2, i3));
         while (merged.hasNext()) {
             System.out.println(merged.next());
         }
+        timing();
     }
 }
 
